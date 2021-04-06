@@ -69,9 +69,7 @@ func main() {
 	}
 	app.Action = action
 
-	if err := app.Run(os.Args); err != nil {
-		log.Error().Stack().Err(err).Send()
-	}
+	_ = app.Run(os.Args)
 }
 
 func action(c *cli.Context) {
