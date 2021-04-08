@@ -35,7 +35,7 @@ func main() {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 
 	app := cli.NewApp()
-	app.Name = "photo-dir-d"
+	app.Name = "photo-dir-date"
 
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
