@@ -1,7 +1,6 @@
 package exiftool
 
 import (
-	"fmt"
 	"github.com/pkg/errors"
 	"os/exec"
 	"strings"
@@ -28,15 +27,17 @@ func Init() error {
 
 const DateTimeOriginalLayout = "2006-01-02 15:04:05.000 -07:00"
 
-func SetOriginalDateTime(file string, ts time.Time) error {
+func SetOriginalDateTime(file string, ts time.Time, overwrite bool) error {
 
-	cmd := exec.Command(
-		exiftool,
-		"-overwrite_original",
-		"-DateTimeOriginal=\""+ts.Format(DateTimeOriginalLayout)+"\"",
-		fmt.Sprintf("-SubSecTimeOriginal=%d", ts.Nanosecond()),
-		file,
-	)
+	arg := []string{
+		"-DateTimeOriginal=\"" + ts.Format(DateTimeOriginalLayout) + "\"",
+	}
+	if overwrite {
+		arg = append(arg, "-overwrite_original")
+	}
+	arg = append(arg, file)
+
+	cmd := exec.Command(exiftool, arg...)
 
 	output, err := cmd.Output()
 	if err != nil {

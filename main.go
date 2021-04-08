@@ -55,6 +55,10 @@ func main() {
 			Usage: "set the same datetime for the same reg-format photos. default, add the difference from the creation datetime of the first file.",
 		},
 		cli.BoolFlag{
+			Name:  "o,overwrite",
+			Usage: "overwrite original file.",
+		},
+		cli.BoolFlag{
 			Name:     "dry-run",
 			Usage:    "dry run.",
 			Required: false,
@@ -215,7 +219,7 @@ func run(c *cli.Context) error {
 		i := i
 		eg.Go(func() error {
 			defer func() { <-ch }()
-			if err := exiftool.SetOriginalDateTime(i.filepath, i.datetime); err != nil {
+			if err := exiftool.SetOriginalDateTime(i.filepath, i.datetime, c.Bool("overwrite")); err != nil {
 				return errors.WithStack(err)
 			}
 			return nil
