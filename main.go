@@ -3,8 +3,11 @@ package main
 import (
 	"bufio"
 	"context"
+	"github.com/djherbis/times"
+	"github.com/fatih/color"
 	"github.com/kasai-y/photo-dir-date/exiftool"
 	"github.com/pkg/errors"
+	"github.com/rodaine/table"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/rs/zerolog/pkgerrors"
@@ -19,23 +22,10 @@ import (
 	"time"
 )
 
-type dateStruct struct {
-	y int
-	m int
-	d int
-	h int
-	i int
-	s int
-	n int
-}
-
-func (d *dateStruct) time() time.Time {
-	return time.Date(d.y, time.Month(d.m), d.d, d.h, d.i, d.s, d.n, time.Local)
-}
-
 type resetFile struct {
 	filepath string
-	datetime dateStruct
+	datetime time.Time
+	createTs *time.Time
 }
 
 func main() {
@@ -59,6 +49,10 @@ func main() {
 			Required: false,
 			Hidden:   true,
 			Value:    "(\\d{4})-(\\d{2})-(\\d{2})[^\\d]*(\\d{2})(\\d{2})(\\d{2})",
+		},
+		cli.BoolFlag{
+			Name:  "set-flat-time",
+			Usage: "set the same datetime for the same reg-format photos. default, add the difference from the creation datetime of the first file.",
 		},
 		cli.BoolFlag{
 			Name:     "dry-run",
@@ -124,20 +118,22 @@ func run(c *cli.Context) error {
 	}); err != nil {
 		return errors.WithStack(err)
 	}
+	if len(resetFiles) < 1 {
+		println("no JPEG files exists.")
+		return nil
+	}
 
-	//-- set datetime
-	sameDateMap := make(map[string]int)
-	for i, f := range resetFiles {
+	//-- set datetime from filepath
+	for fi, f := range resetFiles {
 		sm := reg.FindStringSubmatch(f.filepath)
 		if len(sm) < 7 {
 			return nil
 		}
 
+		var y, m, d, h, i, s int
+
 		for si, sv := range sm {
 			if si == 0 {
-				continue
-			}
-			if strings.Trim(sv, "_") == "" {
 				continue
 			}
 			v, err := strconv.Atoi(sv)
@@ -147,34 +143,58 @@ func run(c *cli.Context) error {
 
 			switch si {
 			case 1:
-				resetFiles[i].datetime.y = v
+				y = v
 			case 2:
-				resetFiles[i].datetime.m = v
+				m = v
 			case 3:
-				resetFiles[i].datetime.d = v
+				d = v
 			case 4:
-				resetFiles[i].datetime.h = v
+				h = v
 			case 5:
-				resetFiles[i].datetime.i = v
+				i = v
 			case 6:
-				resetFiles[i].datetime.s = v
+				s = v
 			}
 		}
-		dt := resetFiles[i].datetime
+		resetFiles[fi].datetime = time.Date(y, time.Month(m), d, h, i, s, 0, time.Local)
+	}
 
-		layout := "2006-01-02 15:04:05"
-		if _, ok := sameDateMap[dt.time().Format(layout)]; !ok {
-			sameDateMap[dt.time().Format(layout)] = 0
-		} else {
-			sameDateMap[dt.time().Format(layout)]++
+	//-- set createTs
+	for i, f := range resetFiles {
+		stat, err := times.Stat(f.filepath)
+		if err != nil {
+			return errors.WithStack(err)
 		}
-		resetFiles[i].datetime.n = sameDateMap[dt.time().Format(layout)]
+		if !stat.HasBirthTime() {
+			continue
+		}
+		bt := stat.BirthTime()
+		resetFiles[i].createTs = &bt
 	}
 
-	println()
-	for _, i := range resetFiles {
-		println(i.datetime.time().Format(exiftool.DateTimeOriginalLayout) + " | " + i.filepath)
+	//-- add seconds from file created time.
+	if !c.Bool("set-flat-time") {
+		sameDateBaseTimeMap := make(map[string]time.Time)
+		for i, f := range resetFiles {
+			if f.createTs == nil {
+				continue
+			}
+			k := f.datetime.String()
+			if _, ok := sameDateBaseTimeMap[k]; !ok {
+				sameDateBaseTimeMap[k] = *f.createTs
+			}
+			resetFiles[i].datetime = f.datetime.Add(f.createTs.Sub(sameDateBaseTimeMap[k]))
+		}
 	}
+
+	//-- print table
+	tbl := table.New("FilePath", "ModifiedTime", "CreateTime")
+	tbl.WithHeaderFormatter(color.New(color.FgGreen, color.Underline).SprintfFunc()).
+		WithFirstColumnFormatter(color.New(color.FgCyan).SprintfFunc())
+	for _, i := range resetFiles {
+		tbl.AddRow(i.filepath, i.datetime.Format("2006-01-02 15:04:05.000000000 -07:00"), i.createTs.String())
+	}
+	tbl.Print()
 
 	if c.Bool("dry-run") {
 		println("-- dry-run --")
@@ -195,7 +215,7 @@ func run(c *cli.Context) error {
 		i := i
 		eg.Go(func() error {
 			defer func() { <-ch }()
-			if err := exiftool.SetOriginalDateTime(i.filepath, i.datetime.time()); err != nil {
+			if err := exiftool.SetOriginalDateTime(i.filepath, i.datetime); err != nil {
 				return errors.WithStack(err)
 			}
 			return nil
